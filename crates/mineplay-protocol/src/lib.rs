@@ -133,12 +133,12 @@ pub struct Envelope {
     pub payload: Payload,
 }
 
-pub fn encode_envelope(envelope: &Envelope) -> Result<Vec<u8>, bincode::Error> {
-    bincode::serialize(envelope)
+pub fn encode_envelope(envelope: &Envelope) -> Result<Vec<u8>, cracode::error::EncodeError> {
+    cracode::serde::encode_to_vec(envelope, cracode::config::standard())
 }
 
-pub fn decode_envelope(bytes: &[u8]) -> Result<Envelope, bincode::Error> {
-    bincode::deserialize(bytes)
+pub fn decode_envelope(bytes: &[u8]) -> Result<Envelope, cracode::error::DecodeError> {
+    cracode::serde::decode_from_slice(bytes, cracode::config::standard()).map(|(value, _)| value)
 }
 
 #[cfg(test)]

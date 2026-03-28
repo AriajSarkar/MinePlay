@@ -12,6 +12,12 @@ If the phone is already paired and visible in `adb devices`:
 cargo run -p mineplay-desktop -- play
 ```
 
+To capture a monitored session with FPS and RTT logs:
+
+```powershell
+cargo run -p mineplay-desktop -- play --perf-log
+```
+
 PowerShell wrapper:
 
 ```powershell
@@ -23,9 +29,10 @@ What `play` does:
 1. Selects the active Android device
 2. Recovers any stale display override from a previous interrupted session
 3. Resolves the local `scrcpy` binary
-4. Applies a temporary `16:9` Android display override when `fill_mode = "auto"`
-5. Starts Minecraft with fullscreen borderless mirror output
-6. Restores the original Android display on exit
+4. Detects the active PC monitor size and chooses the target play resolution dynamically
+5. Prefers a monitor-sized Android virtual display when supported, otherwise falls back to logical display override
+6. Starts Minecraft with fullscreen borderless mirror output
+7. Restores the original Android display on exit if a logical override was used
 
 ## First-Time Wireless Pairing
 
@@ -76,9 +83,24 @@ fill_mode = "auto"
 
 Modes:
 
-- `auto`: recommended; changes Android logical display size before launch and restores it on exit
+- `auto`: recommended; prefers a virtual display sized to the current PC monitor and falls back to logical display override only when needed
 - `fit`: preserves the full phone frame and may show black bars
 - `crop`: crops the mirrored frame after render; usable only as a fallback
+
+## FPS Control
+
+Configured in `config/mineplay.toml`:
+
+```toml
+[video]
+target_fps = 60
+```
+
+Rules:
+
+- `60`: current default play cap
+- `120`: use the device's higher refresh path when available
+- `0`: uncapped; omit `--max-fps`
 
 ## If the Phone Ratio Gets Stuck
 
@@ -102,7 +124,7 @@ MinePlay also performs stale-override recovery automatically on the next `play` 
 Expected cleanup:
 
 - `scrcpy` exits
-- the temporary Android display override is removed
+- any temporary Android display override is removed
 - the phone returns to its physical display size
 
 ## Current Backend Status
@@ -112,8 +134,10 @@ Working today:
 - wireless ADB orchestration
 - local `scrcpy` runtime
 - fullscreen mirror window
+- dynamic monitor-sized virtual display on supported devices
 - UHID keyboard and mouse forwarding
-- automatic display override and recovery
+- automatic encoder selection, display shaping, and recovery
+- optional perf logs and RTT probes for wireless diagnosis
 
 Still in scaffold state:
 

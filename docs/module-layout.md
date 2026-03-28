@@ -12,6 +12,8 @@ Responsibilities:
 - tool checks
 - device selection
 - play-session orchestration
+- adaptive scrcpy tuning
+- dynamic host-display sizing
 - display override recovery
 
 ### `crates/mineplay-android-shell`
@@ -25,6 +27,7 @@ Responsibilities:
 - enumerate devices
 - install APKs
 - read and control Android display size
+- read Android SDK and Wi-Fi IP metadata
 
 ### `crates/mineplay-scrcpy`
 
@@ -35,6 +38,7 @@ Responsibilities:
 - locate local or global `scrcpy`
 - install `scrcpy` release assets into repo tools
 - format launch arguments
+- inspect available encoders
 - compute crop and display override targets
 - launch the mirror session
 
@@ -96,6 +100,7 @@ Android-side session coordinator placeholder.
 
 - `scripts/bootstrap-tools.ps1`: install local platform-tools when `adb` is missing
 - `scripts/build-android.ps1`: build the Android debug APK
+- `scripts/capture-perfetto.ps1`: capture an Android Perfetto trace over ADB
 - `scripts/pair-device.ps1`: pair and optionally connect to the phone
 - `scripts/play.ps1`: wrapper around `mineplay-desktop play`
 
@@ -104,5 +109,6 @@ Android-side session coordinator placeholder.
 - `docs/setup.md`: host and toolchain bootstrap
 - `docs/start-playing.md`: gameplay launch flow
 - `docs/commands.md`: command reference
+- `docs/performance.md`: latency tuning and diagnostics
 - `docs/troubleshooting.md`: operational fixes
 - `docs/impl/`: original phase-by-phase implementation planning

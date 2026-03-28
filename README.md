@@ -79,6 +79,7 @@ Detailed module map: [docs/module-layout.md](docs/module-layout.md)
 - [docs/start-playing.md](docs/start-playing.md): pairing, launch flow, and gameplay session rules
 - [docs/commands.md](docs/commands.md): CLI and PowerShell wrappers
 - [docs/troubleshooting.md](docs/troubleshooting.md): fixes for ADB, aspect ratio, and launch failures
+- [CHANGELOG.md](CHANGELOG.md): release history and notable changes
 
 ## Current Status
 

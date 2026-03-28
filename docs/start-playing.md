@@ -1,36 +1,123 @@
 # Start Playing
 
-## Current Status
-- Pairing and environment setup are implemented.
-- A playable fullscreen session path is implemented through `scrcpy`.
-- The custom Rust-native transport and Android capture/injection stack are still pending.
+## Objective
 
-## Play Now
-1. Enable Developer Options and Wireless Debugging on the phone.
-2. Run `cargo run -p mineplay-desktop -- doctor`.
-3. Pair with `cargo run -p mineplay-desktop -- pair <host:pairing-port> <pairing-code>` if the device is not already listed.
-4. Connect with `cargo run -p mineplay-desktop -- connect <device-ip:debug-port>` if the device is not already listed.
-5. Run `cargo run -p mineplay-desktop -- play`.
-6. The launcher auto-selects the active ADB device, auto-installs `scrcpy` if needed, launches Minecraft, temporarily applies a `wm size` override for `16:9` fullscreen, and opens a fullscreen borderless mirror window.
-7. When the session exits, the launcher restores the phone display size automatically.
-8. If a session is interrupted and the phone stays in the wrong ratio, run `cargo run -p mineplay-desktop -- reset-display`.
+Launch Minecraft Bedrock from an Android phone onto the PC monitor, drive it with PC keyboard and mouse, and exit without leaving the phone stuck in the wrong aspect ratio.
+
+## Fast Path
+
+If the phone is already paired and visible in `adb devices`:
+
+```powershell
+cargo run -p mineplay-desktop -- play
+```
+
+PowerShell wrapper:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/play.ps1
+```
+
+What `play` does:
+
+1. Selects the active Android device
+2. Recovers any stale display override from a previous interrupted session
+3. Resolves the local `scrcpy` binary
+4. Applies a temporary `16:9` Android display override when `fill_mode = "auto"`
+5. Starts Minecraft with fullscreen borderless mirror output
+6. Restores the original Android display on exit
+
+## First-Time Wireless Pairing
+
+On the phone:
+
+1. Enable Developer Options
+2. Enable Wireless Debugging
+3. Open the pairing screen and copy the pairing address and code
+
+On the PC:
+
+```powershell
+cargo run -p mineplay-desktop -- pair <host:pairing-port> <pairing-code>
+cargo run -p mineplay-desktop -- connect <device-ip:debug-port>
+```
+
+Wrapper script:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/pair-device.ps1 -HostPort <host:pairing-port> -Code <pairing-code> -Serial <device-ip:debug-port>
+```
+
+Verify:
+
+```powershell
+cargo run -p mineplay-desktop -- devices
+```
+
+## Minecraft In-Game Checks
+
+Inside Minecraft Bedrock:
+
+- open `Settings`
+- open the `Keyboard & Mouse` page
+- tune mouse sensitivity and invert-Y to taste
+- confirm the game is reacting to keyboard and mouse input from the PC session
+
+MinePlay does not patch Minecraft settings files directly. It provides the transport and display path; in-game sensitivity stays under Minecraft control.
 
 ## Fill Modes
-- `fill_mode = "auto"`: temporarily changes Android logical display size to the configured target aspect before launch. This is the default and avoids black bars without clipping the Minecraft UI.
-- `fill_mode = "fit"`: keeps the full phone frame and may show black bars on the monitor.
-- `fill_mode = "crop"`: crops the mirrored frame after render. Use only as a fallback; Minecraft menus can become unplayable.
 
-## Stale Recovery
-- `play` restores any stale display override state left by a previous interrupted Mineplay session before launching a new one.
-- `reset-display` force-restores the current device display when no game session is running.
+Configured in `config/mineplay.toml`:
 
-## Optional Android App Path
-- Build the Android APK with `powershell -ExecutionPolicy Bypass -File scripts/build-android.ps1`.
-- Install it with `cargo run -p mineplay-desktop -- install-agent <device-ip:debug-port> android/app/build/outputs/apk/debug/app-debug.apk`.
-- This path is scaffolded for the future custom transport and is not the main gameplay path yet.
+```toml
+[playback]
+fill_mode = "auto"
+```
 
-## Custom Transport Gap
-- QUIC streaming session is not implemented.
-- Desktop fullscreen renderer is not implemented.
-- Android `MediaProjection` -> encoder -> transport path is not implemented.
-- Shell-context injector server is not implemented.
+Modes:
+
+- `auto`: recommended; changes Android logical display size before launch and restores it on exit
+- `fit`: preserves the full phone frame and may show black bars
+- `crop`: crops the mirrored frame after render; usable only as a fallback
+
+## If the Phone Ratio Gets Stuck
+
+Run:
+
+```powershell
+cargo run -p mineplay-desktop -- reset-display
+```
+
+This forces:
+
+- `adb shell wm size reset`
+
+MinePlay also performs stale-override recovery automatically on the next `play` command.
+
+## Stop Playing
+
+- Close the `scrcpy` window
+- or stop the `mineplay-desktop play` process cleanly
+
+Expected cleanup:
+
+- `scrcpy` exits
+- the temporary Android display override is removed
+- the phone returns to its physical display size
+
+## Current Backend Status
+
+Working today:
+
+- wireless ADB orchestration
+- local `scrcpy` runtime
+- fullscreen mirror window
+- UHID keyboard and mouse forwarding
+- automatic display override and recovery
+
+Still in scaffold state:
+
+- native Rust video transport
+- Android `MediaProjection` streaming pipeline
+- native desktop renderer/decoder
+- custom input protocol

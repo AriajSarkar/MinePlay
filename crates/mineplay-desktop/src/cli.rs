@@ -50,6 +50,16 @@ pub enum Command {
         #[arg(long)]
         adb: Option<PathBuf>,
     },
+    PerfProbe {
+        #[arg(long)]
+        serial: Option<String>,
+        #[arg(long)]
+        adb: Option<PathBuf>,
+        #[arg(long, default_value_t = 15)]
+        seconds: u64,
+        #[arg(long, default_value_t = 1000)]
+        interval_ms: u64,
+    },
     Play {
         #[arg(long)]
         serial: Option<String>,
@@ -57,6 +67,8 @@ pub enum Command {
         adb: Option<PathBuf>,
         #[arg(long)]
         scrcpy: Option<PathBuf>,
+        #[arg(long, default_value_t = false)]
+        perf_log: bool,
         #[arg(long, default_value_t = true)]
         install_if_missing: bool,
         #[arg(long, default_value_t = false)]

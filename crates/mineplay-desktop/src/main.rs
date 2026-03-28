@@ -1,4 +1,7 @@
+mod adaptive;
 mod cli;
+mod host_display;
+mod perf;
 
 use std::{
     fs,
@@ -6,9 +9,11 @@ use std::{
     process::Command,
 };
 
+use adaptive::{AdaptiveLaunchPlan, apply_adaptive_tuning};
 use anyhow::{Context, Result};
 use clap::Parser;
 use cli::{Cli, Command as CliCommand};
+use host_display::resolve_display_target;
 use mineplay_android_shell::{
     AdbRunner, ConnectRequest, DeviceEntry, DisplaySize, InstallRequest, PairRequest, adb_status,
     resolve_adb_path,
@@ -21,6 +26,7 @@ use mineplay_scrcpy::{
     ScrcpyLaunchOptions, compute_crop, compute_display_override, install_latest_scrcpy,
     launch_scrcpy, resolve_scrcpy_path, scrcpy_status,
 };
+use perf::{PerfSessionConfig, run_monitored_scrcpy, run_perf_probe};
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 use tracing_subscriber::{EnvFilter, fmt};
@@ -31,6 +37,8 @@ const DISPLAY_STATE_FILE_NAME: &str = "display-override-state.json";
 struct PlayDisplayPlan {
     crop: Option<String>,
     display_override: Option<PendingDisplayOverride>,
+    target_size: DisplaySize,
+    using_virtual_display: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,13 +111,28 @@ fn main() -> Result<()> {
         }
         CliCommand::InstallScrcpy { version } => run_install_scrcpy(&layout, version.as_deref()),
         CliCommand::ResetDisplay { serial, adb } => run_reset_display(&layout, serial, adb),
+        CliCommand::PerfProbe {
+            serial,
+            adb,
+            seconds,
+            interval_ms,
+        } => run_perf_probe_command(&layout, serial, adb, seconds, interval_ms),
         CliCommand::Play {
             serial,
             adb,
             scrcpy,
+            perf_log,
             install_if_missing,
             dry_run,
-        } => run_play(&layout, serial, adb, scrcpy, install_if_missing, dry_run),
+        } => run_play(
+            &layout,
+            serial,
+            adb,
+            scrcpy,
+            perf_log,
+            install_if_missing,
+            dry_run,
+        ),
     }
 }
 
@@ -243,6 +266,7 @@ fn run_play(
     serial: Option<String>,
     adb: Option<PathBuf>,
     scrcpy: Option<PathBuf>,
+    perf_log: bool,
     install_if_missing: bool,
     dry_run: bool,
 ) -> Result<()> {
@@ -255,12 +279,35 @@ fn run_play(
     let scrcpy_path = resolve_scrcpy_path(layout, scrcpy.as_deref(), install_if_missing)?;
     let adb_path = resolve_adb_path(layout, adb.as_deref())?;
     let mut options = ScrcpyLaunchOptions::from_config(selected_serial, &config);
+    let play_serial = options.serial.clone();
     options.adb_path = Some(adb_path);
-    let display_plan = build_display_plan(&runner, &options.serial, &config)?;
+    let target_display = resolve_display_target(&config);
+    let adaptive_plan = apply_adaptive_tuning(
+        layout,
+        &runner,
+        &scrcpy_path,
+        &play_serial,
+        &config,
+        target_display.size,
+        target_display.dynamic,
+        &mut options,
+    )?;
+    let perf_session = build_perf_session_config(&config, perf_log);
+    if perf_session.enable_output_log {
+        options.print_fps = true;
+    }
+    let display_plan = build_display_plan(
+        &runner,
+        &options.serial,
+        &config,
+        adaptive_plan.target_size,
+        adaptive_plan.using_virtual_display,
+    )?;
     options.crop = display_plan.crop.clone();
 
     println!("scrcpy={}", scrcpy_path.display());
     println!("serial={}", options.serial);
+    print_adaptive_plan(&adaptive_plan);
     print_display_plan(config.playback.fill_mode.as_str(), &display_plan);
 
     let rendered_args: Vec<String> = options
@@ -280,7 +327,13 @@ fn run_play(
         &options.serial,
         display_plan.display_override,
     )?;
-    let status = launch_scrcpy(&scrcpy_path, &options);
+    let status = if perf_session.enable_output_log || perf_session.enable_adb_rtt_probe {
+        let result = run_monitored_scrcpy(layout, &runner, &scrcpy_path, &options, perf_session)?;
+        println!("perf_log={}", result.log_path.display());
+        Ok(result.status)
+    } else {
+        launch_scrcpy(&scrcpy_path, &options)
+    };
 
     if let Some(active_override) = active_override {
         if let Err(error) =
@@ -295,6 +348,62 @@ fn run_play(
 
     let status = status?;
     println!("exit_status={status}");
+    Ok(())
+}
+
+fn run_perf_probe_command(
+    layout: &ProjectLayout,
+    serial: Option<String>,
+    adb: Option<PathBuf>,
+    seconds: u64,
+    interval_ms: u64,
+) -> Result<()> {
+    let config = load_config(&layout.files.config_file)
+        .with_context(|| format!("missing config file {}", layout.files.config_file.display()))?;
+    let runner = runner_for(layout, adb.as_deref())?;
+    let devices = runner.connected_devices()?;
+    let selected_serial = select_device_serial(serial, &config, &devices)?;
+    let device_ip = runner.wifi_ipv4(&selected_serial)?;
+    let probe = run_perf_probe(
+        layout,
+        &runner,
+        &selected_serial,
+        device_ip.as_deref(),
+        seconds,
+        interval_ms,
+        config.diagnostics.adb_rtt_probe_timeout_ms,
+    )?;
+    let summary = &probe.summary;
+
+    println!("serial={selected_serial}");
+    println!(
+        "device_ip={}",
+        summary.device_ip.as_deref().unwrap_or("unavailable")
+    );
+    println!("samples={}", summary.sample_count);
+    println!("min_rtt_ms={}", summary.min_rtt_ms);
+    println!("avg_rtt_ms={}", summary.avg_rtt_ms);
+    println!("p95_rtt_ms={}", summary.p95_rtt_ms);
+    println!("max_rtt_ms={}", summary.max_rtt_ms);
+    println!("ping_samples={}", summary.ping_sample_count);
+    println!("min_ping_ms={}", summary.min_ping_ms);
+    println!("avg_ping_ms={}", summary.avg_ping_ms);
+    println!("p95_ping_ms={}", summary.p95_ping_ms);
+    println!("max_ping_ms={}", summary.max_ping_ms);
+    println!("perf_log={}", summary.log_path.display());
+    if config.diagnostics.compare_previous_perf
+        && let Some(comparison) = &probe.comparison
+    {
+        println!(
+            "previous_perf_log={}",
+            comparison.previous_log_path.display()
+        );
+        println!("delta_avg_rtt_ms={}", comparison.delta_avg_rtt_ms);
+        println!("delta_p95_rtt_ms={}", comparison.delta_p95_rtt_ms);
+        println!("delta_max_rtt_ms={}", comparison.delta_max_rtt_ms);
+        println!("delta_avg_ping_ms={}", comparison.delta_avg_ping_ms);
+        println!("delta_p95_ping_ms={}", comparison.delta_p95_ping_ms);
+    }
     Ok(())
 }
 
@@ -338,11 +447,24 @@ fn build_display_plan(
     runner: &AdbRunner,
     serial: &str,
     config: &mineplay_config::AppConfig,
+    target_size: DisplaySize,
+    using_virtual_display: bool,
 ) -> Result<PlayDisplayPlan> {
+    if using_virtual_display {
+        return Ok(PlayDisplayPlan {
+            crop: None,
+            display_override: None,
+            target_size,
+            using_virtual_display: true,
+        });
+    }
+
     match config.playback.fill_mode.as_str() {
         "fit" => Ok(PlayDisplayPlan {
             crop: None,
             display_override: None,
+            target_size,
+            using_virtual_display: false,
         }),
         "crop" => {
             let size_info = runner.wm_size(serial)?;
@@ -351,13 +473,15 @@ fn build_display_plan(
                 crop: compute_crop(
                     size.width,
                     size.height,
-                    config.playback.target_aspect_width,
-                    config.playback.target_aspect_height,
+                    target_size.width,
+                    target_size.height,
                 ),
                 display_override: None,
+                target_size,
+                using_virtual_display: false,
             })
         }
-        "auto" => build_auto_display_plan(runner, serial, config),
+        "auto" => build_auto_display_plan(runner, serial, target_size),
         other => anyhow::bail!("unsupported playback.fill_mode `{other}`"),
     }
 }
@@ -365,14 +489,14 @@ fn build_display_plan(
 fn build_auto_display_plan(
     runner: &AdbRunner,
     serial: &str,
-    config: &mineplay_config::AppConfig,
+    target_size: DisplaySize,
 ) -> Result<PlayDisplayPlan> {
     let size_info = runner.wm_size(serial)?;
     let requested = compute_display_override(
         size_info.physical.width,
         size_info.physical.height,
-        config.playback.target_aspect_width,
-        config.playback.target_aspect_height,
+        target_size.width,
+        target_size.height,
     );
 
     let display_override = requested.and_then(|requested| {
@@ -390,10 +514,23 @@ fn build_auto_display_plan(
     Ok(PlayDisplayPlan {
         crop: None,
         display_override,
+        target_size,
+        using_virtual_display: false,
     })
 }
 
 fn print_display_plan(fill_mode: &str, plan: &PlayDisplayPlan) {
+    println!(
+        "display_target={}x{}",
+        plan.target_size.width, plan.target_size.height
+    );
+
+    if plan.using_virtual_display {
+        println!("display_mode=virtual");
+        println!("display_override=none");
+        return;
+    }
+
     if let Some(crop) = &plan.crop {
         println!("display_mode=crop");
         println!("display_crop={crop}");
@@ -411,6 +548,58 @@ fn print_display_plan(fill_mode: &str, plan: &PlayDisplayPlan) {
 
     println!("display_mode={fill_mode}");
     println!("display_override=none");
+}
+
+fn print_adaptive_plan(plan: &AdaptiveLaunchPlan) {
+    println!("target_dynamic={}", plan.dynamic_target);
+    println!(
+        "device_sdk={}",
+        plan.device_sdk
+            .map(|sdk| sdk.to_string())
+            .unwrap_or_else(|| "unknown".to_string())
+    );
+    println!("virtual_display={}", plan.using_virtual_display);
+    println!(
+        "selected_encoder={}",
+        plan.selected_encoder.as_deref().unwrap_or("default")
+    );
+    if let Some(previous_probe) = &plan.previous_probe {
+        println!("previous_probe_log={}", previous_probe.log_path.display());
+        println!("previous_probe_avg_rtt_ms={}", previous_probe.avg_rtt_ms);
+        println!("previous_probe_p95_rtt_ms={}", previous_probe.p95_rtt_ms);
+    }
+    if let Some(previous_session) = &plan.previous_session {
+        println!(
+            "previous_session_log={}",
+            previous_session.log_path.display()
+        );
+        println!("previous_session_avg_fps={}", previous_session.avg_fps);
+        println!(
+            "previous_session_max_skipped_frames={}",
+            previous_session.max_skipped_frames
+        );
+    }
+    for note in &plan.notes {
+        println!("adaptive_note={note}");
+    }
+}
+
+fn build_perf_session_config(
+    config: &mineplay_config::AppConfig,
+    force_perf_log: bool,
+) -> PerfSessionConfig {
+    PerfSessionConfig {
+        enable_output_log: force_perf_log
+            || config.diagnostics.enable_session_perf_log
+            || config.diagnostics.enable_scrcpy_fps_counter,
+        enable_adb_rtt_probe: force_perf_log || config.diagnostics.enable_adb_rtt_probe,
+        adb_rtt_probe_interval: std::time::Duration::from_millis(
+            config.diagnostics.adb_rtt_probe_interval_ms.max(50),
+        ),
+        adb_rtt_slow_threshold: std::time::Duration::from_millis(
+            config.diagnostics.adb_rtt_probe_timeout_ms.max(1),
+        ),
+    }
 }
 
 fn apply_display_override(

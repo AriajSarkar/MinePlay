@@ -167,6 +167,44 @@ impl AdbRunner {
         self.run_args(&request.args())
     }
 
+    pub fn shell_true(&self, serial: &str) -> Result<OutputSummary> {
+        self.run_args(&[
+            OsString::from("-s"),
+            OsString::from(serial),
+            OsString::from("shell"),
+            OsString::from("true"),
+        ])
+    }
+
+    pub fn wifi_ipv4(&self, serial: &str) -> Result<Option<String>> {
+        let output = self.run_args(&[
+            OsString::from("-s"),
+            OsString::from(serial),
+            OsString::from("shell"),
+            OsString::from("ip"),
+            OsString::from("-f"),
+            OsString::from("inet"),
+            OsString::from("addr"),
+            OsString::from("show"),
+            OsString::from("wlan0"),
+        ])?;
+
+        Ok(parse_wifi_ipv4(&output.stdout))
+    }
+
+    pub fn sdk_version(&self, serial: &str) -> Result<u32> {
+        let output = self.run_args(&[
+            OsString::from("-s"),
+            OsString::from(serial),
+            OsString::from("shell"),
+            OsString::from("getprop"),
+            OsString::from("ro.build.version.sdk"),
+        ])?;
+
+        parse_sdk_version(&output.stdout)
+            .with_context(|| format!("failed to parse SDK version from `{}`", output.stdout))
+    }
+
     fn run_args(&self, args: &[OsString]) -> Result<OutputSummary> {
         let output = Command::new(&self.adb_path)
             .args(args)
@@ -358,6 +396,22 @@ fn parse_raw_size(value: &str) -> Option<DisplaySize> {
     Some(DisplaySize { width, height })
 }
 
+pub fn parse_wifi_ipv4(stdout: &str) -> Option<String> {
+    stdout.lines().find_map(|line| {
+        let trimmed = line.trim();
+        if !trimmed.starts_with("inet ") {
+            return None;
+        }
+
+        let cidr = trimmed.split_whitespace().nth(1)?;
+        Some(cidr.split('/').next()?.to_string())
+    })
+}
+
+pub fn parse_sdk_version(stdout: &str) -> Option<u32> {
+    stdout.trim().parse().ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -419,5 +473,20 @@ mod tests {
                 height: 1920
             })
         );
+    }
+
+    #[test]
+    fn parses_wifi_ipv4_output() {
+        let ip = parse_wifi_ipv4(
+            "77: wlan0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP group default qlen 3000\n    inet 192.168.1.10/24 brd 192.168.1.255 scope global wlan0\n",
+        )
+        .expect("wifi ip");
+        assert_eq!(ip, "192.168.1.10");
+    }
+
+    #[test]
+    fn parses_sdk_version_output() {
+        let sdk = parse_sdk_version("36\n").expect("sdk");
+        assert_eq!(sdk, 36);
     }
 }

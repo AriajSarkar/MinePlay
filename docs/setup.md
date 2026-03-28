@@ -98,8 +98,20 @@ Shows:
 - selected `scrcpy` binary
 - selected Android serial
 - display mode
-- temporary aspect override plan
+- dynamic target resolution
+- virtual display or logical override plan
 - final launch arguments
+
+## 8. Optional Wireless Probe
+
+```powershell
+cargo run -p mineplay-desktop -- perf-probe --seconds 5 --interval-ms 750
+```
+
+Use this before tuning so you can separate:
+
+- ADB control-path overhead
+- raw Wi-Fi link latency
 
 ## Runtime Display Behavior
 
@@ -108,15 +120,20 @@ Default config:
 ```toml
 [playback]
 fill_mode = "auto"
-target_aspect_width = 16
-target_aspect_height = 9
+dynamic_display = true
+prefer_virtual_display = true
 ```
 
 Behavior:
 
-- `auto`: apply temporary `adb shell wm size` override before launch, then restore afterward
+- `auto`: detect the current PC monitor size, prefer `scrcpy --new-display=<width>x<height>` on supported devices, and fall back to temporary `adb shell wm size` override only if needed
 - `fit`: keep full phone frame and allow black bars
 - `crop`: crop after render; available, but not the preferred Minecraft mode
+
+Frame-rate behavior:
+
+- `video.target_fps = 60`: current default
+- `video.target_fps = 0`: uncapped; omit `--max-fps` and let the device/backend drive as fast as possible
 
 If a session was interrupted, MinePlay restores stale display state on the next `play` launch.
 
@@ -133,3 +150,4 @@ cargo run -p mineplay-desktop -- reset-display
 - `scripts/play.ps1`: PowerShell wrapper for `play`
 - `scripts/pair-device.ps1`: PowerShell wrapper for pairing
 - `scripts/build-android.ps1`: Android debug APK build
+- `scripts/capture-perfetto.ps1`: Android trace capture for deeper analysis

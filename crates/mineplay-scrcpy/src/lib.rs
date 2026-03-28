@@ -4,7 +4,7 @@ use std::{
     fs::{self, File},
     io::{self, Cursor},
     path::{Path, PathBuf},
-    process::{Command, ExitStatus},
+    process::{Child, Command, ExitStatus, Stdio},
 };
 
 use anyhow::{Context, Result, bail};
@@ -25,7 +25,7 @@ pub struct ScrcpyLocation {
 pub struct ScrcpyLaunchOptions {
     pub serial: String,
     pub max_size: u32,
-    pub max_fps: u16,
+    pub max_fps: Option<u16>,
     pub bitrate_kbps: u32,
     pub fullscreen: bool,
     pub borderless: bool,
@@ -35,10 +35,37 @@ pub struct ScrcpyLaunchOptions {
     pub prefer_hid_mouse: bool,
     pub start_app: Option<String>,
     pub video_codec: String,
+    pub video_encoder: Option<String>,
+    pub video_codec_options: Option<String>,
+    pub video_buffer_ms: u32,
+    pub render_driver: Option<String>,
+    pub disable_mipmaps: bool,
+    pub disable_clipboard_autosync: bool,
+    pub print_fps: bool,
+    pub verbosity: String,
     pub turn_screen_off: bool,
     pub window_title: String,
     pub adb_path: Option<PathBuf>,
     pub crop: Option<String>,
+    pub new_display: Option<NewDisplaySpec>,
+    pub no_vd_system_decorations: bool,
+    pub no_vd_destroy_content: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NewDisplaySpec {
+    pub width: u32,
+    pub height: u32,
+    pub dpi: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VideoEncoderInfo {
+    pub codec: String,
+    pub name: String,
+    pub hardware: bool,
+    pub vendor: bool,
+    pub alias: bool,
 }
 
 impl ScrcpyLaunchOptions {
@@ -49,7 +76,7 @@ impl ScrcpyLaunchOptions {
         Self {
             serial,
             max_size: config.scrcpy.max_size.min(config.video.preferred_width),
-            max_fps: config.video.target_fps,
+            max_fps: (config.video.target_fps > 0).then_some(config.video.target_fps),
             bitrate_kbps: config.video.target_bitrate_kbps,
             fullscreen: config.playback.fullscreen,
             borderless: config.playback.borderless,
@@ -62,10 +89,25 @@ impl ScrcpyLaunchOptions {
                 .auto_launch_minecraft
                 .then(|| config.android.minecraft_package_name.clone()),
             video_codec: config.scrcpy.video_codec.clone(),
+            video_encoder: config.scrcpy.video_encoder.clone(),
+            video_codec_options: config
+                .scrcpy
+                .video_codec_options
+                .as_ref()
+                .and_then(|value| (!value.trim().is_empty()).then(|| value.clone())),
+            video_buffer_ms: config.scrcpy.video_buffer_ms,
+            render_driver: config.scrcpy.render_driver.clone(),
+            disable_mipmaps: config.scrcpy.disable_mipmaps,
+            disable_clipboard_autosync: config.scrcpy.disable_clipboard_autosync,
+            print_fps: config.diagnostics.enable_scrcpy_fps_counter,
+            verbosity: config.scrcpy.verbosity.clone(),
             turn_screen_off: config.scrcpy.turn_screen_off,
             window_title,
             adb_path: None,
             crop: None,
+            new_display: None,
+            no_vd_system_decorations: config.playback.virtual_display_hide_system_decorations,
+            no_vd_destroy_content: config.playback.virtual_display_preserve_content,
         }
     }
 
@@ -76,13 +118,21 @@ impl ScrcpyLaunchOptions {
             OsString::from(&self.serial),
             OsString::from(format!("--video-codec={}", self.video_codec)),
             OsString::from(format!("--max-size={}", self.max_size)),
-            OsString::from(format!("--max-fps={}", self.max_fps)),
             OsString::from(format!(
                 "--video-bit-rate={}",
                 format_bitrate(self.bitrate_kbps)
             )),
             OsString::from(format!("--window-title={}", self.window_title)),
+            OsString::from(format!("--video-buffer={}", self.video_buffer_ms)),
         ];
+
+        if let Some(max_fps) = self.max_fps {
+            args.push(OsString::from(format!("--max-fps={max_fps}")));
+        }
+
+        if !self.verbosity.trim().is_empty() {
+            args.push(OsString::from(format!("--verbosity={}", self.verbosity)));
+        }
 
         if self.fullscreen {
             args.push(OsString::from("--fullscreen"));
@@ -112,8 +162,49 @@ impl ScrcpyLaunchOptions {
             args.push(OsString::from("--mouse=uhid"));
         }
 
+        if let Some(video_encoder) = &self.video_encoder {
+            args.push(OsString::from(format!("--video-encoder={video_encoder}")));
+        }
+
+        if let Some(video_codec_options) = &self.video_codec_options {
+            args.push(OsString::from(format!(
+                "--video-codec-options={video_codec_options}"
+            )));
+        }
+
+        if let Some(render_driver) = &self.render_driver {
+            args.push(OsString::from(format!("--render-driver={render_driver}")));
+        }
+
+        if self.disable_mipmaps {
+            args.push(OsString::from("--no-mipmaps"));
+        }
+
+        if self.disable_clipboard_autosync {
+            args.push(OsString::from("--no-clipboard-autosync"));
+        }
+
+        if self.print_fps {
+            args.push(OsString::from("--print-fps"));
+        }
+
         if let Some(crop) = &self.crop {
             args.push(OsString::from(format!("--crop={crop}")));
+        }
+
+        if let Some(new_display) = self.new_display {
+            let mut value = format!("{}x{}", new_display.width, new_display.height);
+            if let Some(dpi) = new_display.dpi {
+                value.push('/');
+                value.push_str(&dpi.to_string());
+            }
+            args.push(OsString::from(format!("--new-display={value}")));
+            if self.no_vd_system_decorations {
+                args.push(OsString::from("--no-vd-system-decorations"));
+            }
+            if self.no_vd_destroy_content {
+                args.push(OsString::from("--no-vd-destroy-content"));
+            }
         }
 
         if let Some(package_name) = &self.start_app {
@@ -236,6 +327,21 @@ pub fn install_latest_scrcpy(
 }
 
 pub fn launch_scrcpy(binary_path: &Path, options: &ScrcpyLaunchOptions) -> Result<ExitStatus> {
+    spawn_scrcpy(binary_path, options, false)?
+        .wait()
+        .with_context(|| {
+            format!(
+                "failed while waiting for scrcpy at {}",
+                binary_path.display()
+            )
+        })
+}
+
+pub fn spawn_scrcpy(
+    binary_path: &Path,
+    options: &ScrcpyLaunchOptions,
+    capture_output: bool,
+) -> Result<Child> {
     let mut command = Command::new(binary_path);
     command.args(options.args());
 
@@ -243,9 +349,73 @@ pub fn launch_scrcpy(binary_path: &Path, options: &ScrcpyLaunchOptions) -> Resul
         prepend_path(&mut command, adb_path.parent());
     }
 
+    if capture_output {
+        command.stdout(Stdio::piped());
+        command.stderr(Stdio::piped());
+    }
+
     command
-        .status()
+        .spawn()
         .with_context(|| format!("failed to launch scrcpy at {}", binary_path.display()))
+}
+
+pub fn supports_option(binary_path: &Path, option: &str) -> Result<bool> {
+    let output = Command::new(binary_path)
+        .arg("--help")
+        .output()
+        .with_context(|| format!("failed to query scrcpy help at {}", binary_path.display()))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(stdout.contains(option))
+}
+
+pub fn list_video_encoders(
+    binary_path: &Path,
+    serial: &str,
+    adb_path: Option<&Path>,
+) -> Result<Vec<VideoEncoderInfo>> {
+    let mut command = Command::new(binary_path);
+    command.args(["--serial", serial, "--list-encoders"]);
+
+    if let Some(adb_path) = adb_path {
+        prepend_path(&mut command, adb_path.parent());
+    }
+
+    let output = command
+        .output()
+        .with_context(|| format!("failed to list encoders via {}", binary_path.display()))?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(parse_video_encoders(&stdout))
+}
+
+#[must_use]
+pub fn choose_preferred_h264_encoder(encoders: &[VideoEncoderInfo]) -> Option<String> {
+    encoders
+        .iter()
+        .filter(|encoder| encoder.codec.eq_ignore_ascii_case("h264"))
+        .max_by_key(|encoder| {
+            let mut score = 0_i32;
+            if encoder.hardware {
+                score += 100;
+            }
+            if encoder.vendor {
+                score += 25;
+            }
+            if !encoder.alias {
+                score += 20;
+            }
+            if encoder.name.starts_with("c2.") {
+                score += 10;
+            }
+            if !encoder.name.contains(".wfd.") {
+                score += 5;
+            }
+            if encoder.name.contains("google") || encoder.name.contains("android") {
+                score -= 50;
+            }
+            score
+        })
+        .map(|encoder| encoder.name.clone())
 }
 
 fn fetch_release_metadata(version_override: Option<&str>) -> Result<GitHubRelease> {
@@ -437,6 +607,31 @@ fn format_bitrate(kbps: u32) -> String {
     }
 }
 
+fn parse_video_encoders(stdout: &str) -> Vec<VideoEncoderInfo> {
+    stdout
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with("--video-codec="))
+        .filter_map(|line| {
+            let codec = parse_flag_value(line, "--video-codec=")?;
+            let name = parse_flag_value(line, "--video-encoder=")?;
+            Some(VideoEncoderInfo {
+                codec,
+                name: name.clone(),
+                hardware: line.contains("(hw)"),
+                vendor: line.contains("[vendor]"),
+                alias: line.contains("(alias for"),
+            })
+        })
+        .collect()
+}
+
+fn parse_flag_value(line: &str, prefix: &str) -> Option<String> {
+    line.split_whitespace()
+        .find_map(|part| part.strip_prefix(prefix))
+        .map(str::to_string)
+}
+
 pub fn compute_crop(
     device_width: u32,
     device_height: u32,
@@ -550,6 +745,11 @@ mod tests {
         assert!(args.iter().any(|arg| arg == "--fullscreen"));
         assert!(args.iter().any(|arg| arg == "--keyboard=uhid"));
         assert!(args.iter().any(|arg| arg == "--mouse=uhid"));
+        assert!(args.iter().any(|arg| arg == "--max-fps=60"));
+        assert!(args.iter().any(|arg| arg == "--video-buffer=0"));
+        assert!(args.iter().any(|arg| arg == "--render-driver=direct3d"));
+        assert!(args.iter().any(|arg| arg == "--no-mipmaps"));
+        assert!(args.iter().any(|arg| arg == "--no-clipboard-autosync"));
         assert!(
             args.iter()
                 .any(|arg| arg == "--start-app=com.mojang.minecraftpe")
@@ -578,5 +778,71 @@ mod tests {
                 height: 1920
             }
         );
+    }
+
+    #[test]
+    fn omits_max_fps_when_uncapped() {
+        let mut config = AppConfig::default();
+        config.video.target_fps = 0;
+        let options = ScrcpyLaunchOptions::from_config("device-1".to_string(), &config);
+
+        let args = options.args();
+        assert!(
+            !args
+                .iter()
+                .any(|arg| arg.to_string_lossy().starts_with("--max-fps="))
+        );
+    }
+
+    #[test]
+    fn formats_virtual_display_args() {
+        let mut options =
+            ScrcpyLaunchOptions::from_config("device-1".to_string(), &AppConfig::default());
+        options.new_display = Some(NewDisplaySpec {
+            width: 1920,
+            height: 1080,
+            dpi: Some(420),
+        });
+
+        let args = options.args();
+        assert!(args.iter().any(|arg| arg == "--new-display=1920x1080/420"));
+        assert!(args.iter().any(|arg| arg == "--no-vd-system-decorations"));
+        assert!(args.iter().any(|arg| arg == "--no-vd-destroy-content"));
+    }
+
+    #[test]
+    fn parses_video_encoders_from_scrcpy_output() {
+        let encoders = parse_video_encoders(
+            "[server] INFO: List of video encoders:\n    --video-codec=h264 --video-encoder=c2.exynos.h264.encoder         (hw) [vendor]\n    --video-codec=h264 --video-encoder=c2.android.avc.encoder         (sw)\n",
+        );
+
+        assert_eq!(encoders.len(), 2);
+        assert_eq!(encoders[0].codec, "h264");
+        assert!(encoders[0].hardware);
+        assert!(encoders[0].vendor);
+        assert_eq!(encoders[1].name, "c2.android.avc.encoder");
+    }
+
+    #[test]
+    fn prefers_vendor_hardware_h264_encoder() {
+        let encoders = vec![
+            VideoEncoderInfo {
+                codec: "h264".to_string(),
+                name: "c2.android.avc.encoder".to_string(),
+                hardware: false,
+                vendor: false,
+                alias: false,
+            },
+            VideoEncoderInfo {
+                codec: "h264".to_string(),
+                name: "c2.exynos.h264.encoder".to_string(),
+                hardware: true,
+                vendor: true,
+                alias: false,
+            },
+        ];
+
+        let encoder = choose_preferred_h264_encoder(&encoders).expect("encoder");
+        assert_eq!(encoder, "c2.exynos.h264.encoder");
     }
 }

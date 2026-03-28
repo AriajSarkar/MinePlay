@@ -45,13 +45,13 @@ Use the default display mode:
 ```toml
 [playback]
 fill_mode = "auto"
-target_aspect_width = 16
-target_aspect_height = 9
+dynamic_display = true
+prefer_virtual_display = true
 ```
 
 Behavior:
 
-- `auto` removes monitor letterboxing by changing Android logical display size before launch
+- `auto` removes monitor letterboxing by sizing the session to the current PC monitor and preferring an Android virtual display first
 - `fit` keeps the full phone frame and can show black bars
 - `crop` removes bars by cutting pixels and is not recommended for Minecraft menus
 
@@ -88,6 +88,35 @@ Use the output to verify:
 - resolved `scrcpy` path
 - display mode
 - final launch arguments
+
+## Gameplay Feels Lazy Or Slightly Delayed
+
+Reality first:
+
+- Wireless play cannot be perfectly identical to holding the phone directly
+- encode, transport, decode, and display scheduling always add overhead
+
+Do this:
+
+```powershell
+cargo run -p mineplay-desktop -- perf-probe --seconds 5 --interval-ms 750
+cargo run -p mineplay-desktop -- play --perf-log
+```
+
+Check:
+
+- `avg_ping_ms`: raw Wi-Fi latency to the device IP
+- `avg_rtt_ms`: ADB control-path round trip
+- `delta_avg_rtt_ms`: how the current probe compares to the previous probe
+- `logs/perf/*.jsonl`: session and probe logs
+
+If the Wi-Fi ping is low but ADB RTT is high, the bottleneck is not the radio alone; it is the ADB/control stack or session buffering.
+
+If the session only feels lazy every few seconds:
+
+- keep `video.target_fps = 60` first
+- run `perf-probe` again and compare `delta_*` fields
+- let MinePlay keep the reduced adaptive bitrate when previous probes are worse than baseline
 
 ## Keyboard Or Mouse Feels Wrong In Minecraft
 

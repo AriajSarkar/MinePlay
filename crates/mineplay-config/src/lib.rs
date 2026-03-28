@@ -18,6 +18,7 @@ pub struct AppConfig {
     pub video: VideoConfig,
     pub fallback: FallbackConfig,
     pub playback: PlaybackConfig,
+    pub diagnostics: DiagnosticsConfig,
     pub scrcpy: ScrcpyConfig,
 }
 
@@ -47,6 +48,7 @@ impl Default for AppConfig {
                 allow_shell_mode: true,
             },
             playback: PlaybackConfig::default(),
+            diagnostics: DiagnosticsConfig::default(),
             scrcpy: ScrcpyConfig::default(),
         }
     }
@@ -118,6 +120,11 @@ pub struct PlaybackConfig {
     pub fullscreen: bool,
     pub borderless: bool,
     pub fill_mode: String,
+    pub dynamic_display: bool,
+    pub prefer_virtual_display: bool,
+    pub virtual_display_dpi: Option<u32>,
+    pub virtual_display_hide_system_decorations: bool,
+    pub virtual_display_preserve_content: bool,
     pub target_aspect_width: u32,
     pub target_aspect_height: u32,
     pub no_audio: bool,
@@ -135,6 +142,11 @@ impl Default for PlaybackConfig {
             fullscreen: true,
             borderless: true,
             fill_mode: "auto".to_string(),
+            dynamic_display: true,
+            prefer_virtual_display: true,
+            virtual_display_dpi: None,
+            virtual_display_hide_system_decorations: true,
+            virtual_display_preserve_content: true,
             target_aspect_width: 16,
             target_aspect_height: 9,
             no_audio: true,
@@ -148,11 +160,42 @@ impl Default for PlaybackConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default)]
+pub struct DiagnosticsConfig {
+    pub enable_session_perf_log: bool,
+    pub enable_scrcpy_fps_counter: bool,
+    pub enable_adb_rtt_probe: bool,
+    pub compare_previous_perf: bool,
+    pub adb_rtt_probe_interval_ms: u64,
+    pub adb_rtt_probe_timeout_ms: u64,
+}
+
+impl Default for DiagnosticsConfig {
+    fn default() -> Self {
+        Self {
+            enable_session_perf_log: false,
+            enable_scrcpy_fps_counter: false,
+            enable_adb_rtt_probe: false,
+            compare_previous_perf: true,
+            adb_rtt_probe_interval_ms: 1_000,
+            adb_rtt_probe_timeout_ms: 1_500,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
 pub struct ScrcpyConfig {
     pub auto_install: bool,
     pub version: Option<String>,
     pub video_codec: String,
+    pub video_encoder: Option<String>,
+    pub video_codec_options: Option<String>,
     pub max_size: u32,
+    pub video_buffer_ms: u32,
+    pub render_driver: Option<String>,
+    pub disable_mipmaps: bool,
+    pub disable_clipboard_autosync: bool,
+    pub verbosity: String,
     pub turn_screen_off: bool,
 }
 
@@ -162,7 +205,18 @@ impl Default for ScrcpyConfig {
             auto_install: true,
             version: None,
             video_codec: "h264".to_string(),
+            video_encoder: None,
+            video_codec_options: None,
             max_size: 1920,
+            video_buffer_ms: 0,
+            render_driver: if cfg!(windows) {
+                Some("direct3d".to_string())
+            } else {
+                None
+            },
+            disable_mipmaps: true,
+            disable_clipboard_autosync: true,
+            verbosity: "info".to_string(),
             turn_screen_off: false,
         }
     }

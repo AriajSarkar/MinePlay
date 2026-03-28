@@ -128,13 +128,47 @@ Dry run:
 cargo run -p mineplay-desktop -- play --dry-run
 ```
 
+Enable perf log capture:
+
+```powershell
+cargo run -p mineplay-desktop -- play --perf-log
+```
+
 What it does:
 
 - selects the device
 - resolves `adb` and `scrcpy`
-- applies automatic display override when configured
+- detects the current monitor resolution
+- prefers a monitor-sized virtual display when supported
+- falls back to logical display override when required
+- auto-selects a preferred H.264 encoder when available
 - launches Minecraft in the mirror session
 - restores display state on exit
+
+With `--perf-log`, it also:
+
+- enables `scrcpy` FPS output
+- writes session JSONL logs under `logs/perf/`
+- samples ADB control RTT during the session
+
+## `perf-probe`
+
+Measure the wireless path before tuning.
+
+```powershell
+cargo run -p mineplay-desktop -- perf-probe --seconds 15 --interval-ms 1000
+```
+
+Reports:
+
+- ADB control round-trip time
+- raw Wi-Fi ping time to the device IP
+- deltas against the previous probe when a previous log exists
+- JSONL log output path
+
+Config note:
+
+- `video.target_fps = 0` means uncapped and omits `--max-fps`
 
 ## `reset-display`
 
@@ -188,4 +222,12 @@ Download local Android platform-tools if `adb` is missing.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/bootstrap-tools.ps1
+```
+
+### `scripts/capture-perfetto.ps1`
+
+Capture an Android Perfetto trace over ADB for deeper frame/input analysis.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/capture-perfetto.ps1 -Seconds 15
 ```

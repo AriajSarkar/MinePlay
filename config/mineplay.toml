@@ -1,0 +1,39 @@
+[android]
+package_name = "dev.mineplay.agent"
+minecraft_package_name = "com.mojang.minecraftpe"
+min_sdk = 29
+prefer_wireless_debugging = true
+
+[network]
+transport = "quic"
+listen_port = 47651
+pairing_timeout_seconds = 60
+
+[video]
+preferred_width = 1920
+preferred_height = 1080
+target_fps = 60
+target_bitrate_kbps = 20000
+
+[fallback]
+allow_accessibility_fallback = true
+allow_shell_mode = true
+
+[playback]
+backend = "scrcpy"
+fullscreen = true
+borderless = true
+fill_mode = "auto"
+target_aspect_width = 16
+target_aspect_height = 9
+no_audio = true
+stay_awake = true
+prefer_hid_keyboard = true
+prefer_hid_mouse = true
+auto_launch_minecraft = true
+
+[scrcpy]
+auto_install = true
+video_codec = "h264"
+max_size = 1920
+turn_screen_off = false

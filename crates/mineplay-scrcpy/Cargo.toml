@@ -1,0 +1,17 @@
+[package]
+name = "mineplay-scrcpy"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+mineplay-android-shell = { path = "../mineplay-android-shell" }
+mineplay-config = { path = "../mineplay-config" }
+mineplay-core = { path = "../mineplay-core" }
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+zip.workspace = true

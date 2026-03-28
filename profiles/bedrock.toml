@@ -1,0 +1,55 @@
+look_sensitivity = 1.0
+invert_y = false
+gui_pointer_scale = 1.0
+
+[[bindings]]
+action = "move_forward"
+input = "KeyW"
+
+[[bindings]]
+action = "move_left"
+input = "KeyA"
+
+[[bindings]]
+action = "move_backward"
+input = "KeyS"
+
+[[bindings]]
+action = "move_right"
+input = "KeyD"
+
+[[bindings]]
+action = "jump"
+input = "Space"
+
+[[bindings]]
+action = "sneak"
+input = "ShiftLeft"
+
+[[bindings]]
+action = "sprint"
+input = "ControlLeft"
+
+[[bindings]]
+action = "inventory"
+input = "KeyE"
+
+[[bindings]]
+action = "attack_break"
+input = "MouseLeft"
+
+[[bindings]]
+action = "use_place"
+input = "MouseRight"
+
+[[bindings]]
+action = "hotbar_next"
+input = "WheelDown"
+
+[[bindings]]
+action = "hotbar_prev"
+input = "WheelUp"
+
+[[bindings]]
+action = "pause_release_cursor"
+input = "Escape"

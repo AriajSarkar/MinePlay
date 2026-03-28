@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Mineplay Agent</string>
+    <string name="accessibility_service_label">Mineplay Touch Fallback</string>
+    <string name="projection_channel_name">Projection</string>
+    <string name="projection_notification_text">Projection service active</string>
+    <string name="start_projection">Grant Projection Access</string>
+    <string name="open_accessibility">Open Accessibility Settings</string>
+    <string name="startup_state_text">Grant projection first. Enable accessibility fallback only if shell injection is unavailable.</string>
+</resources>

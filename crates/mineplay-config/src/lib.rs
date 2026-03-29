@@ -208,7 +208,7 @@ impl Default for ScrcpyConfig {
             video_encoder: None,
             video_codec_options: None,
             max_size: 1920,
-            video_buffer_ms: 0,
+            video_buffer_ms: 30,
             render_driver: if cfg!(windows) {
                 Some("direct3d".to_string())
             } else {
@@ -217,7 +217,7 @@ impl Default for ScrcpyConfig {
             disable_mipmaps: true,
             disable_clipboard_autosync: true,
             verbosity: "info".to_string(),
-            turn_screen_off: false,
+            turn_screen_off: true,
         }
     }
 }

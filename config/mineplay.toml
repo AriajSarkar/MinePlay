@@ -13,7 +13,7 @@ pairing_timeout_seconds = 60
 preferred_width = 1920
 preferred_height = 1080
 target_fps = 60
-target_bitrate_kbps = 30000
+target_bitrate_kbps = 20000
 
 [fallback]
 allow_accessibility_fallback = true
@@ -49,9 +49,9 @@ auto_install = true
 video_codec = "h264"
 video_codec_options = ""
 max_size = 1920
-video_buffer_ms = 0
+video_buffer_ms = 30
 render_driver = "direct3d"
 disable_mipmaps = true
 disable_clipboard_autosync = true
 verbosity = "info"
-turn_screen_off = false
+turn_screen_off = true

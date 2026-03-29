@@ -14,11 +14,12 @@ use crate::perf::{
     load_latest_probe_summary,
 };
 
-const HIGH_RTT_AVG_MS: u128 = 120;
-const HIGH_RTT_P95_MS: u128 = 200;
+const HIGH_RTT_AVG_MS: u128 = 80;
+const HIGH_RTT_P95_MS: u128 = 140;
 const LOW_FPS_MARGIN: u32 = 6;
 const HIGH_SKIPPED_FRAMES: u32 = 8;
 const MIN_BITRATE_KBPS: u32 = 12_000;
+const ADAPTIVE_DISPLAY_BUFFER_MS: u32 = 80;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdaptiveLaunchPlan {
@@ -81,7 +82,7 @@ pub fn apply_adaptive_tuning(
         .is_some_and(|summary| is_session_bad(summary, options.max_fps));
 
     if probe_is_bad || session_is_bad {
-        options.bitrate_kbps = ((options.bitrate_kbps as u64 * 85) / 100) as u32;
+        options.bitrate_kbps = ((options.bitrate_kbps as u64 * 75) / 100) as u32;
         options.bitrate_kbps = options.bitrate_kbps.max(MIN_BITRATE_KBPS);
         notes.push(format!("adaptive_bitrate_kbps={}", options.bitrate_kbps));
     }
@@ -92,6 +93,14 @@ pub fn apply_adaptive_tuning(
         let lower_bound = target_max.min(1280);
         options.max_size = reduced_max.max(lower_bound);
         notes.push(format!("adaptive_max_size={}", options.max_size));
+
+        if options.video_buffer_ms < ADAPTIVE_DISPLAY_BUFFER_MS {
+            options.video_buffer_ms = ADAPTIVE_DISPLAY_BUFFER_MS;
+            notes.push(format!(
+                "adaptive_video_buffer_ms={}",
+                options.video_buffer_ms
+            ));
+        }
     }
 
     Ok(AdaptiveLaunchPlan {
@@ -125,10 +134,10 @@ mod tests {
     fn keeps_quality_when_previous_metrics_are_clean() {
         let previous_probe = Some(PerfProbeSummary {
             sample_count: 4,
-            min_rtt_ms: 40,
-            avg_rtt_ms: 80,
-            p95_rtt_ms: 120,
-            max_rtt_ms: 140,
+            min_rtt_ms: 20,
+            avg_rtt_ms: 45,
+            p95_rtt_ms: 70,
+            max_rtt_ms: 90,
             device_ip: None,
             ping_sample_count: 0,
             min_ping_ms: 0,
@@ -144,8 +153,8 @@ mod tests {
             max_fps: 60,
             max_skipped_frames: 1,
             adb_rtt_sample_count: 4,
-            avg_rtt_ms: 80,
-            p95_rtt_ms: 120,
+            avg_rtt_ms: 45,
+            p95_rtt_ms: 70,
             log_path: "play.jsonl".into(),
         });
 

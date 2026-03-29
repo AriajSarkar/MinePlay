@@ -746,10 +746,11 @@ mod tests {
         assert!(args.iter().any(|arg| arg == "--keyboard=uhid"));
         assert!(args.iter().any(|arg| arg == "--mouse=uhid"));
         assert!(args.iter().any(|arg| arg == "--max-fps=60"));
-        assert!(args.iter().any(|arg| arg == "--video-buffer=0"));
+        assert!(args.iter().any(|arg| arg == "--video-buffer=30"));
         assert!(args.iter().any(|arg| arg == "--render-driver=direct3d"));
         assert!(args.iter().any(|arg| arg == "--no-mipmaps"));
         assert!(args.iter().any(|arg| arg == "--no-clipboard-autosync"));
+        assert!(args.iter().any(|arg| arg == "--turn-screen-off"));
         assert!(
             args.iter()
                 .any(|arg| arg == "--start-app=com.mojang.minecraftpe")
